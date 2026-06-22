@@ -1,0 +1,9 @@
+{
+  "name": "whoelse",
+  "description": "Run /whoelse to turn your Claude Code session into sanitized keywords and get matched into a live terminal chat with people building the same thing. Substance over performance.",
+  "version": "0.0.1",
+  "author": {
+    "name": "AI for Science Power Users gathering"
+  },
+  "homepage": "https://who-else.science"
+}

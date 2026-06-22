@@ -1,0 +1,17 @@
+{
+  "name": "whoelse",
+  "owner": {
+    "name": "AI for Science Power Users gathering"
+  },
+  "metadata": {
+    "description": "whoelse \u2014 find who else is building the same thing, in your terminal."
+  },
+  "plugins": [
+    {
+      "name": "whoelse",
+      "source": "./",
+      "description": "Run /whoelse to turn your Claude Code session into sanitized keywords + your GitHub signal, and get matched into a live terminal chat with people building the same thing.",
+      "version": "0.0.1"
+    }
+  ]
+}
