@@ -39,15 +39,19 @@ and a tight `keywords` array (lowercase, deduped). Keywords are the match key; a
 for the handful of phrases that best distinguish this work from everyone else's,
 not generic terms.
 
-### 1b. Enrich with GitHub (the "substance" identity)
-Use the **`github-profile`** skill to fold the user's real GitHub signal into the
-draft. whoelse is "a social network for GitHub" — the profile should reflect what
-they actually build.
+### 1b. Enrich with GitHub (match signal only — NOT identity)
+Use the **`github-profile`** skill to fold the user's real GitHub work into the
+match **signal**. whoelse is "a social network for GitHub" — the keywords should
+reflect what they actually build.
 
-- **Public — on by default.** Run `gh_profile.py public`. Set `github_login` /
-  `github_url` (their verified handle) and merge the returned `languages` +
-  `topics` into `keywords`. If the script returns `{"ok": false}` (no `gh`, or not
-  authenticated), skip enrichment, tell the user, and continue — it's optional.
+> **Identity is no longer set here.** The displayed GitHub handle is established by
+> a **server-verified device login** in the terminal chat client (see step 5) —
+> never a self-asserted `--github`/`github_login`. This skill only contributes
+> *keywords* (languages, repo topics); it does not claim who you are.
+
+- **Public — on by default.** Run `gh_profile.py public` and merge the returned
+  `languages` + `topics` into `keywords`. If the script returns `{"ok": false}`
+  (no `gh`, or not authenticated), skip enrichment and continue — it's optional.
 - **Private — opt-in only.** Ask whether they want signal from their *private*
   repos. Only if yes, run `gh_profile.py private`, show the candidate phrases (with
   each phrase's source), and let them **approve phrase-by-phrase** which may join
@@ -111,14 +115,16 @@ called the MCP `connect` tool for this path. Tell the user to open a **second
 terminal pane** and run the client with the approved keywords:
 
 ```
-node client/whoelse-chat.js --keywords "approved,keywords,here" --github <login>
+node client/whoelse-chat.js --keywords "approved,keywords,here"
 ```
 
-- Use the **exact** keywords from the review gate (comma-separated). Drop
-  `--github <login>` if they chose not to share their handle at the gate.
-- For local development the user adds `--server http://localhost:8080`; with no
-  `--server` the client talks to the live deploy
-  (`https://ohwow-mcp-production.up.railway.app`).
+- Use the **exact** keywords from the review gate (comma-separated).
+- **Identity is verified, not claimed.** On first run the client does a one-time
+  GitHub **device login** (open the URL, enter the code); after that you appear as
+  your verified `@handle`. Pass `--anon` to skip and join anonymously. There's no
+  flag to assert a handle you haven't verified.
+- For local development add `--server http://localhost:8080`; with no `--server`
+  the client talks to the live deploy.
 
 Explain the model so they know what they're walking into:
 - It's a **live, ephemeral room**: the client joins (or creates) a room whose

@@ -31,6 +31,7 @@ const DEFAULT_SERVER =
 
 const CONTACTS_DIR = path.join(os.homedir(), '.whoelse');
 const CONTACTS_FILE = path.join(CONTACTS_DIR, 'contacts.json');
+const SESSION_FILE = path.join(CONTACTS_DIR, 'session.json');
 
 // --- arg parsing ------------------------------------------------------------
 function parseArgs(argv) {
@@ -38,9 +39,10 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--keywords') out.keywords = argv[++i];
-    else if (a === '--github') out.github = argv[++i];
     else if (a === '--server') out.server = argv[++i];
     else if (a === '--plain') out.plain = true;
+    else if (a === '--anon') out.anon = true; // skip GitHub verification, join anonymously
+    else if (a === '--logout') out.logout = true; // clear saved verified session
     else if (a === '--help' || a === '-h') out.help = true;
   }
   return out;
@@ -51,16 +53,20 @@ function usage() {
     'whoelse-chat — ephemeral terminal chat with people working on similar things',
     '',
     'Usage:',
-    '  node whoelse-chat.js --keywords "a,b,c" [--github <login>] [--server <url>]',
+    '  node whoelse-chat.js --keywords "a,b,c" [--server <url>]',
     '  node whoelse-chat.js --plain --keywords "a,b"   # old line-based client',
     '',
     'Options:',
     '  --keywords  comma-separated keywords (required, at least 1)',
-    '  --github    your GitHub login (optional; otherwise you join as anon-…)',
     '  --server    backend base URL (default: $WHOELSE_SERVER or the live deploy)',
+    '  --anon      skip GitHub verification and join anonymously',
+    '  --logout    forget your saved verified GitHub session, then exit',
     '  --plain     use the original line-based client (no Ink UI)',
     '',
-    'In-app slash commands: /save  /who  /lobby  /quit',
+    'Identity: your handle is verified via GitHub device login (one-time), or you',
+    'join as anon-…. There is no way to claim a handle you have not verified.',
+    '',
+    'In-app slash commands: /save  /who  /lobby  /join <n>  /quit',
   ].join('\n');
 }
 
@@ -246,6 +252,52 @@ function isBot(handle) {
   return /\bbot\b|^bot[-_]|[-_]bot$|seed/i.test(String(handle));
 }
 
+// --- verified-identity session (GitHub device flow) -------------------------
+// We store ONLY the whoelse session token the server minted for our verified
+// login — never a GitHub token (the client never sees one).
+function readSession() {
+  try { return JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8')); } catch { return null; }
+}
+function writeSession(s) {
+  fs.mkdirSync(CONTACTS_DIR, { recursive: true });
+  fs.writeFileSync(SESSION_FILE, JSON.stringify(s, null, 2));
+}
+function clearSession() { try { fs.unlinkSync(SESSION_FILE); } catch {} }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Run GitHub device login against the server. Prints the code, polls until the
+// user authorizes (or Ctrl-C to skip → anonymous). Returns { token, login } or null.
+async function deviceLogin(server) {
+  let start;
+  try { start = await postJSON(server, '/auth/device/start', {}); } catch { start = null; }
+  if (!start || !start.authId) {
+    console.log('GitHub verification is unavailable right now — joining anonymously.\n');
+    return null;
+  }
+  console.log('\n  Verify your GitHub identity (one-time):');
+  console.log(`    1. open  \x1b[1m${start.verification_uri}\x1b[0m`);
+  console.log(`    2. enter code  \x1b[1;36m${start.user_code}\x1b[0m`);
+  console.log('  Waiting… (Ctrl-C to skip and join anonymously)\n');
+  const interval = Math.max(2, start.interval || 5);
+  const deadline = Date.now() + (start.expires_in || 900) * 1000;
+  while (Date.now() < deadline) {
+    await sleep(interval * 1000);
+    let p;
+    try { p = await postJSON(server, '/auth/device/poll', { authId: start.authId }); } catch { continue; }
+    if (p.status === 'ok' && p.token) {
+      console.log(`  \x1b[32m✓ verified as @${p.login}\x1b[0m\n`);
+      return { token: p.token, login: p.login };
+    }
+    if (p.status === 'error') {
+      console.log(`  verification ${p.error || 'failed'} — joining anonymously.\n`);
+      return null;
+    }
+    // pending → keep polling
+  }
+  console.log('  verification timed out — joining anonymously.\n');
+  return null;
+}
+
 // --- time formatting (viewer-local, plus the sender's local time) ------------
 const VIEWER_TZ = (() => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return ''; }
@@ -297,7 +349,7 @@ async function runInk(args) {
     joined = await postJSON(server, '/chat/join', {
       keywords,
       tz: VIEWER_TZ,
-      ...(args.github ? { githubLogin: args.github } : {}),
+      ...(args._authToken ? { authToken: args._authToken } : {}),
     });
   } catch (err) {
     console.error(`Could not reach the whoelse backend at ${server}`);
@@ -323,9 +375,15 @@ async function runInk(args) {
 
     const backlogAuthors = (recent) => [...new Set((recent || []).map((m) => m.user).filter(Boolean))];
 
-    const [messages, setMessages] = useState(() =>
-      (init.recent || []).map((m) => ({ ...m, kind: 'message' })),
-    );
+    const [messages, setMessages] = useState(() => {
+      const idents = init.verified
+        ? `you're in as @${init.user} ✓ verified`
+        : `you're in anonymously (as ${init.user}) — run /whoelse-chat without --anon to verify with GitHub`;
+      return [
+        { kind: 'system', text: idents, ts: Date.now() },
+        ...(init.recent || []).map((m) => ({ ...m, kind: 'message' })),
+      ];
+    });
     const [members, setMembers] = useState(init.members || 1);
     // Seed "who's here" from the backlog so the room's regulars (incl. bots that
     // already posted) show up, not just whoever speaks after you arrive.
@@ -399,7 +457,7 @@ async function runInk(args) {
             keywords,
             roomId,
             tz: VIEWER_TZ,
-            ...(args.github ? { githubLogin: args.github } : {}),
+            ...(args._authToken ? { authToken: args._authToken } : {}),
           });
           roomRef.current = { roomId: next.roomId, token: next.token };
           setRoomName(next.roomName);
@@ -440,7 +498,7 @@ async function runInk(args) {
           }
           case 'save': {
             // Handshakes are with PEOPLE — drop labeled bots (and yourself).
-            const handles = present.filter((h) => !isBot(h) && h !== args.github);
+            const handles = present.filter((h) => !isBot(h) && h !== init.user);
             if (!handles.length) {
               pushSystem('/save: no people to save yet — just bots here so far.');
               break;
@@ -698,6 +756,11 @@ async function main() {
     console.log(usage());
     return;
   }
+  if (args.logout) {
+    clearSession();
+    console.log('Logged out — your verified GitHub session was cleared.');
+    return;
+  }
   if (args.plain) {
     await runPlain();
     return;
@@ -711,6 +774,19 @@ async function main() {
     console.error(usage());
     process.exitCode = 1;
     return;
+  }
+
+  // Resolve identity BEFORE the UI: a saved verified session, a fresh device
+  // login, or anonymous. The token (not a handle) is what we send.
+  const server = args.server || DEFAULT_SERVER;
+  if (!args.anon) {
+    const saved = readSession();
+    if (saved && saved.token) {
+      args._authToken = saved.token;
+    } else {
+      const session = await deviceLogin(server);
+      if (session) { writeSession(session); args._authToken = session.token; }
+    }
   }
   await runInk(args);
 }

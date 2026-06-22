@@ -14,6 +14,9 @@ import http from 'node:http';
 import https from 'node:https';
 import readline from 'node:readline';
 import process from 'node:process';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { URL } from 'node:url';
 
 const DEFAULT_SERVER =
@@ -29,7 +32,6 @@ function parseArgs(argv) {
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--keywords') out.keywords = argv[++i];
-    else if (a === '--github') out.github = argv[++i];
     else if (a === '--server') out.server = argv[++i];
     else if (a === '--help' || a === '-h') out.help = true;
   }
@@ -41,11 +43,11 @@ function usage() {
     'whoelse-chat — ephemeral terminal chat with people working on similar things',
     '',
     'Usage:',
-    '  node client/whoelse-chat.js --keywords "a,b,c" [--github <login>] [--server <url>]',
+    '  node client/whoelse-chat.js --plain --keywords "a,b,c" [--server <url>]',
     '',
     'Options:',
     '  --keywords  comma-separated keywords (required, at least 1)',
-    '  --github    your GitHub login (optional; otherwise you join as anon-…)',
+    '  (identity: uses your saved verified session if present, else anonymous)',
     '  --server    backend base URL (default: $WHOELSE_SERVER or the live deploy)',
   ].join('\n');
 }
@@ -195,10 +197,14 @@ async function main() {
   // 1. Join (or create) a room.
   let joined;
   try {
+    // Use a saved verified session if present (from the Ink client's device login);
+    // otherwise join anonymously. The plain client doesn't run the device flow.
+    let savedToken = null;
+    try { savedToken = JSON.parse(fs.readFileSync(path.join(os.homedir(), '.whoelse', 'session.json'), 'utf8')).token; } catch {}
     joined = await postJSON(server, '/chat/join', {
       keywords,
       tz: VIEWER_TZ,
-      ...(args.github ? { githubLogin: args.github } : {}),
+      ...(savedToken ? { authToken: savedToken } : {}),
     });
   } catch (err) {
     console.error(`Could not reach the whoelse backend at ${server}`);

@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 #
 # whoelse — installer
-# Adds the `citizenlee/whoelse-cli` marketplace and installs the `whoelse` plugin
-# (the /whoelse command, the scrub + summarize skills, and the whoelse MCP server).
+# Adds the public `citizenlee/whoelse-cli` marketplace and installs the `whoelse`
+# plugin (the /whoelse command, the scrub + summarize skills, and the MCP server).
 #
-#   curl -fsSL https://whoelse.science/install.sh | bash
-#
-# This is exactly the two commands on https://whoelse.science/install, scripted.
+#   curl -fsSL https://who-else.science/install.sh | bash
 
 set -euo pipefail
 
