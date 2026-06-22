@@ -4,7 +4,7 @@
 # Adds the public `citizenlee/whoelse-cli` marketplace and installs the `whoelse`
 # plugin (the /whoelse command, the scrub + summarize skills, and the MCP server).
 #
-#   curl -fsSL https://who-else.science/install.sh | bash
+#   curl -fsSL https://whoelse.dev/install.sh | bash
 
 set -euo pipefail
 
